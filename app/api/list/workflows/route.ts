@@ -1,4 +1,6 @@
-// app/api/list/workflows/route.ts
 export async function GET() {
-  return Response.json([]);
+  return Response.json({ ok: true });
+}
+export async function POST() {
+  return Response.json({ ok: true });
 }

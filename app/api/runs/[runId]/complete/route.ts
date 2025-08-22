@@ -1,4 +1,6 @@
-// Minimal stub so the route is a valid module for build
+export async function GET() {
+  return Response.json({ ok: true });
+}
 export async function POST() {
-  return new Response("ok");
+  return Response.json({ ok: true });
 }
