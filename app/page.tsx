@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 const FORM_ENDPOINT = "https://formspree.io/f/xnnzkkdr"; // change if needed
 const VIDEO_URL = "https://www.youtube.com/embed/dQw4w9WgXcQ"; // put your demo link here (YouTube/Vimeo embed URL)
@@ -44,10 +45,10 @@ export default function LandingPage() {
       {/* Topbar */}
       <header className="sticky top-0 z-20 bg-white/70 backdrop-blur border-b border-slate-200">
         <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <div className="h-8 w-8 rounded-xl bg-slate-900" />
             <span className="font-semibold tracking-tight">workpaperly</span>
-          </a>
+          </Link>
           <nav className="hidden sm:flex gap-6 text-sm text-slate-600">
             <a href="#features" className="hover:text-slate-900">Features</a>
             <a href="#how" className="hover:text-slate-900">How it works</a>
@@ -59,28 +60,33 @@ export default function LandingPage() {
       {/* Hero (video on the right — temporarily hidden via Option A) */}
       <section className="mx-auto max-w-6xl px-6 py-16 md:py-24 grid md:grid-cols-12 gap-10 items-center">
         <div className="md:col-span-7">
+          <p className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> AI for year-end
+          </p>
           <h1 className="mt-4 text-4xl md:text-6xl font-semibold leading-tight tracking-tight">
-            Accounts preparation, done in hours not weeks.
+            Year-end accounts, done in hours—not weeks.
           </h1>
           <p className="mt-4 text-lg text-slate-600">
-            AI-powered workpapers that cut up to 70% of accounts
+            AI-powered workpapers that cut <span className="font-semibold text-slate-900">up to 70%</span> of accounts
             preparation time.
           </p>
           <p className="mt-4 text-slate-600">
-            Connect your accounting software or upload manual records. AI generates a Trial Balance,
-            lead schedules, and per-nominal tabs to assist with accounts preparation.
+            Connect your accounting software—or upload manual records. AI generates a Trial Balance,
+            lead schedules, and per-nominal tabs with running balances and tie-outs.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
             <a href="#contact" className="px-5 py-3 rounded-xl bg-slate-900 text-white shadow-sm hover:shadow transition">
-              Contact
+              Request access
             </a>
             <a href="#how" className="px-5 py-3 rounded-xl border border-slate-300 hover:bg-white">
               How it works
             </a>
           </div>
 
-
+          <p className="mt-3 text-xs text-slate-500">
+            * Based on internal timings and pilot results; savings vary by client complexity and workflows.
+          </p>
         </div>
 
         {/* Video (temporarily hidden) */}
@@ -105,8 +111,8 @@ export default function LandingPage() {
       {/* Value props */}
       <section className="mx-auto max-w-6xl px-6 py-8 grid md:grid-cols-3 gap-6">
         {[
-          { title: "Automatic workpaper preparation", text: "AI drafts the workpapers - TB, lead schedules, and nominal tabs prepared ready for review." },
-          { title: "Save time on accounts prep", text: "Teams report up to 70% less manual work across accounts preparation." },
+          { title: "Automatic workpaper preparation", text: "AI drafts the pack for you—TB, lead schedules, and per-nominal tabs—ready for review." },
+          { title: "Save time on accounts prep", text: "Teams report up to 70% less manual work across mapping, schedules and tie-outs." },
           { title: "Smart suggestions", text: "Narratives, variance notes and flags for unusual movements to guide your review." },
         ].map((f) => (
           <div key={f.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -121,7 +127,7 @@ export default function LandingPage() {
         {[
           {
             title: "Auto workpaper pack",
-            text: "Trial Balance + nominal tabs, inclusive end-date logic, and complete line-level detail for traceability.",
+            text: "Trial Balance + per-nominal tabs, inclusive end-date logic, and complete line-level detail for traceability.",
           },
           {
             title: "AI lead schedules",
@@ -129,7 +135,7 @@ export default function LandingPage() {
           },
           {
             title: "AI variance notes",
-            text: "Draft commentary on movements and unusual entries.",
+            text: "Draft commentary on movements and unusual entries—edit before sign-off to match firm tone.",
           },
         ].map((f) => (
           <div key={f.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -144,9 +150,9 @@ export default function LandingPage() {
         <h2 className="text-xl font-semibold">How it works</h2>
         <div className="mt-6 grid md:grid-cols-3 gap-6">
           {[
-            { step: "1", title: "Connect or upload", text: "Connect your accounting software or manual records." },
-            { step: "2", title: "Pick your period", text: "Select the start and end dates and target accounts." },
-            { step: "3", title: "Generate & review", text: "AI assembles the Excel pack with a TB, nominal tabs, lead schedules, and notes for your review." },
+            { step: "1", title: "Connect or upload", text: "Connect your accounting software or upload TB + journals." },
+            { step: "2", title: "Pick your period", text: "Select the year-end (end date inclusive) and target accounts." },
+            { step: "3", title: "Generate & review", text: "AI assembles the Excel pack—TB, per-nominal tabs, lead schedules, and notes. You review and sign off." },
           ].map((s) => (
             <div key={s.step} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="h-8 w-8 rounded-full bg-slate-900 text-white flex items-center justify-center">{s.step}</div>
@@ -155,6 +161,9 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
+        <p className="mt-6 text-xs text-slate-500">
+          Accuracy first: we mirror platform logic (e.g., inclusive end dates and page-by-page journals) and tie every number back to source lines.
+        </p>
       </section>
 
       {/* Contact */}
@@ -189,7 +198,7 @@ export default function LandingPage() {
             <div className="flex items-start gap-3">
               <input id="consent" type="checkbox" name="consent" required className="mt-1 h-5 w-5 rounded border-slate-300" />
               <label htmlFor="consent" className="text-sm text-slate-600">
-                I agree to be contacted and accept the <a href="#" className="underline">privacy policy</a>.
+                I agree to be contacted and accept the <Link href="/privacy" className="underline">privacy policy</Link>.
               </label>
             </div>
 
@@ -212,16 +221,15 @@ export default function LandingPage() {
         </div>
       </section>
 
-                {/* Footer */}
-              <footer className="mx-auto max-w-6xl px-6 py-10 text-sm text-slate-500 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <p>© {new Date().getFullYear()} Workpaperly Ltd • All rights reserved</p>
-                <div className="flex gap-5">
-                  <a href="https://workpaperly.com" className="underline" target="_blank" rel="noreferrer">workpaperly.com</a>
-                  <a href="mailto:jozef@workpaperly.com" className="underline">Contact</a>
-                  <a href="/privacy" className="underline">Privacy</a>
-                </div>
-              </footer>
-
+      {/* Footer */}
+      <footer className="mx-auto max-w-6xl px-6 py-10 text-sm text-slate-500 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <p>© {new Date().getFullYear()} Workpaperly Ltd • All rights reserved</p>
+        <div className="flex gap-5">
+          <a href="https://workpaperly.com" className="underline" target="_blank" rel="noreferrer">workpaperly.com</a>
+          <a href="mailto:jozef@workpaperly.com" className="underline">Contact</a>
+          <Link href="/privacy" className="underline">Privacy</Link>
+        </div>
+      </footer>
     </div>
   );
 }
