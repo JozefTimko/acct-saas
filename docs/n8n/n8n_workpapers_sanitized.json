@@ -1,0 +1,1976 @@
+{
+  "name": "My workflow 7",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "url": "https://api.xero.com/api.xro/2.0/Journals",
+        "options": {
+          "fullResponse": true
+        },
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "Xero-tenant-id",
+              "value": "=d796f108-2b49-47e5-bbbf-e86214fa5a0f"
+            }
+          ]
+        },
+        "queryParametersUi": {
+          "parameter": [
+            {
+              "name": "where",
+              "value": "={{ $json.where || $getWorkflowStaticData('global').where }}"
+            },
+            {
+              "name": "order",
+              "value": "JournalDate ASC"
+            },
+            {
+              "name": "offset",
+              "value": "={{ $json.offset ?? 0 }}"
+            }
+          ]
+        }
+      },
+      "id": "738b255d-0211-41ca-a6ce-8e96474ef6c4",
+      "name": "Get Journals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        816
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REDACTED",
+          "name": "REDACTED"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "extract-nominals",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        816
+      ],
+      "id": "aa3b2a8b-c690-4f48-98cd-0944acf490b4",
+      "name": "Webhook",
+      "webhookId": "REDACTED"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2544,
+        816
+      ],
+      "id": "0ebbec74-d745-4c0a-b668-90ed04bde99f",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "661767a0-64fc-4b09-be4c-28043e9139f4",
+              "name": "nominals",
+              "value": "={{ $json.body.nominals }}",
+              "type": "array"
+            },
+            {
+              "id": "a772e340-0525-4d24-825e-8e6c58eb9b67",
+              "name": "startDate",
+              "value": "={{ $json.body.startDate }}",
+              "type": "string"
+            },
+            {
+              "id": "555a63a5-8c75-4e64-adc9-654691425809",
+              "name": "endDate",
+              "value": "={{ $json.body.endDate }}",
+              "type": "string"
+            },
+            {
+              "id": "ec075e0b-de4d-4e7d-be0c-1f63ba191cbc",
+              "name": "tenantId",
+              "value": "={{ $json.body.tenantId }}",
+              "type": "string"
+            },
+            {
+              "id": "0af7c4bc-7d8d-4303-a6d6-0fd3e7fe9823",
+              "name": "journalCodes",
+              "value": "={{ $json.body.journalCodes || [] }}",
+              "type": "string"
+            },
+            {
+              "id": "1e179881-6f8f-4bfb-aa6f-68e75877c301",
+              "name": "debug",
+              "value": "={{ $json.body.debug || false }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -160,
+        736
+      ],
+      "id": "c4fd12f7-6b0e-42bb-bcd2-7bad7a9b9615",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- helpers ---\nfunction msDateToISO(d) {\n  const m = typeof d === 'string' ? d.match(/\\d+/) : null;\n  const t = m ? parseInt(m[0], 10) : NaN;\n  if (!Number.isFinite(t)) return '';\n  return new Date(t).toISOString().slice(0, 10);\n}\n\nconst item = items[0].json || {};\n\nconst selected = new Set((item.nominals || item.selectedNominals || []).map(x => String(x).trim()));\nconst startISO = String(item.startDate || item.body?.startDate || '').slice(0,10);\nconst endISO   = String(item.endDate   || item.body?.endDate   || '').slice(0,10);\n\nconst journals = item.body?.Journals || [];\nconst rows = [];\n\nfor (const j of journals) {\n  const dateISO = msDateToISO(j.JournalDate);\n  if (!dateISO) continue;\n  if (startISO && dateISO < startISO) continue;\n  if (endISO && dateISO > endISO) continue;\n\n  const jNo = j.JournalNumber ?? '';\n  const src = j.SourceType ?? '';\n  const ref = j.Reference || '';\n\n  for (const l of (j.JournalLines || [])) {\n    if (!selected.size || selected.has(String(l.AccountCode))) {\n      rows.push([\n        dateISO,\n        jNo,\n        String(l.AccountCode || ''),\n        l.AccountName || '',\n        l.Description || '',\n        l.NetAmount ?? '',\n        l.TaxAmount ?? '',\n        l.GrossAmount ?? '',\n        src,\n        ref,\n      ]);\n    }\n  }\n}\n\nconst sheetName = selected.size ? `Nominal ${[...selected].join(',')}` : 'All nominals';\nconst header = ['Date','Journal #','Account Code','Account Name','Description','Net','Tax','Gross','Source','Reference'];\n\n// WRITE TO WORKFLOW STATIC DATA *before* returning\nconst sd = $getWorkflowStaticData('global');\nsd.selectedNominals = [...selected];\nsd.startDate = startISO || sd.startDate;\nsd.endDate   = endISO   || sd.endDate;\n\n// Return for downstream nodes\nreturn [{\n  json: {\n    sheetName,\n    selectedNominals: [...selected],\n    startDate: startISO,\n    endDate: endISO,\n    aoa: [header, ...rows],\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3088,
+        816
+      ],
+      "id": "86bec83c-7580-4d7b-82f6-84799ab81216",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "path": "xero-companies",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -144,
+        512
+      ],
+      "id": "2679ce45-2b28-4ec3-9691-b4e3d228aebe",
+      "name": "Webhook (GET)",
+      "webhookId": "REDACTED"
+    },
+    {
+      "parameters": {
+        "url": "https://api.xero.com/connections",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        512
+      ],
+      "id": "8cde7afe-fc64-47df-b650-64c06bbf2978",
+      "name": "Get connections (Xero)",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REDACTED",
+          "name": "REDACTED"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, OPTIONS"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        576,
+        512
+      ],
+      "id": "cd662c38-233a-4701-aa1c-8270e6324cfc",
+      "name": "Return companies"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Select Tenant for Journals  (drop-in replacement)\nconst sd = $getWorkflowStaticData('global');\n\n// pick the first (or change index if needed)\nconst list = items.map(i => i.json).filter(Boolean);\nif (!list.length) throw new Error('No tenants found from \"Get connections (Xero)\".');\n\nconst chosen = list[0];\nconst tid =\n  chosen.tenantId || chosen.tenantID || chosen.tenant_id || chosen.id;\n\nif (!tid) throw new Error('Could not resolve tenantId from the chosen connection.');\n\n// Persist globally so later nodes can read it\nsd.tenantId   = tid;\nsd.tenantName = chosen.tenantName || chosen.name || 'Company';\n\nreturn [{\n  json: {\n    tenantId: tid,\n    tenantName: chosen.tenantName || chosen.name || 'Unknown'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        832
+      ],
+      "id": "25ee709e-9b8d-48ef-b4fd-bcc3a3f7e614",
+      "name": "Select Tenant for Journals"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect Xero connections from whatever shape the previous node returns\nconst collected = [];\n\n// 1) Gather from EVERY incoming item\nfor (const it of items) {\n  const j = it?.json;\n\n  if (!j) continue;\n\n  // Case A: HTTP node returned the array directly\n  if (Array.isArray(j)) {\n    collected.push(...j);\n    continue;\n  }\n\n  // Case B: HTTP node has \"Return full response\" ON -> array is in body\n  if (Array.isArray(j.body)) {\n    collected.push(...j.body);\n    continue;\n  }\n\n  // Case C: Single object is already a connection\n  if (j.tenantId && j.tenantName) {\n    collected.push(j);\n    continue;\n  }\n\n  // Case D: Some wrappers people sometimes add\n  if (Array.isArray(j.connections)) {\n    collected.push(...j.connections);\n    continue;\n  }\n}\n\n// 2) Map to the minimal shape we want\nconst mapped = collected.map(c => ({\n  tenantId: c.tenantId,\n  tenantName: c.tenantName\n})).filter(c => c.tenantId && c.tenantName);\n\n// 3a) (Preferred with Respond: All Incoming Items)\nif (mapped.length) {\n  return mapped.map(c => ({ json: c }));   // one item per company\n}\n\n// 3b) If nothing found, still return an empty list (so HTML shows “No companies” cleanly)\nreturn [];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        512
+      ],
+      "id": "ba95c37c-f93d-4731-9037-2e8e62ea94eb",
+      "name": "Map companies"
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "={{ 'attachment; filename=\"' + ($binary.data.fileName || 'Account-Transactions.xlsx') + '\"' }}"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        6176,
+        1120
+      ],
+      "id": "90ab11de-30b4-4966-bc39-0e1c7926c156",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "content": "## Companies list\n[Guide](https://docs.n8n.io/workflows/sticky-notes/)",
+        "height": 208,
+        "width": 1168
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -192,
+        432
+      ],
+      "typeVersion": 1,
+      "id": "845ff453-6841-4973-b096-a2f666496a0a",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "path": "xero-accounts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -144,
+        256
+      ],
+      "id": "74d8f7e2-cf79-4654-a055-36a9299f02c4",
+      "name": "Webhook1",
+      "webhookId": "REDACTED"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0fde1843-5aca-4a0c-988e-c7836c0c215a",
+              "name": "tenantId",
+              "value": "={{$json.query.tenantId}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        256
+      ],
+      "id": "31b8ab88-1b28-49f2-9130-5232872df3ae",
+      "name": "Select tenant"
+    },
+    {
+      "parameters": {
+        "url": "https://api.xero.com/api.xro/2.0/Accounts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Xero-tenant-id",
+              "value": "={{$json.tenantId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        256
+      ],
+      "id": "b2c1216a-ebb0-457c-954c-266b7b7a6ec6",
+      "name": "HTTP Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REDACTED",
+          "name": "REDACTED"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// AFTER (adds fields + a cheap \"taxSensitive\" tag)\nfunction isTaxSensitive(a) {\n  const name = String(a.Name || '').toLowerCase();\n  const type = String(a.Type || '').toLowerCase();\n  const sys  = String(a.SystemAccount || '').toLowerCase();\n  const taxT = String(a.TaxType || '').toLowerCase();\n\n  // Heuristics:\n  const nameHit = /(vat|gst|tax|hmrc|paye|ni|national\\s*insurance|withholding|cis|duty|excise)/i.test(name);\n  const sysHit  = /(tax|vat|gst|paye|withholding)/i.test(sys);\n  const typeHint = /(currentliability|liability|expense)/i.test(type) && /tax/i.test(name);\n  const taxTypeHit = /(input|output|exempt|zerorated|reverse|withholding)/i.test(taxT);\n\n  return !!(nameHit || sysHit || typeHint || taxTypeHit);\n}\n\nconst body = items[0].json; // Xero returns { Accounts: [...] }\nconst accounts = Array.isArray(body.Accounts) ? body.Accounts : [];\nconst mapped = accounts\n  .filter(a => a && a.Code && a.Name)\n  .map(a => ({\n    json: {\n      code: String(a.Code),\n      name: a.Name,\n      type: a.Type ?? '',\n      taxType: a.TaxType ?? '',\n      systemAccount: a.SystemAccount ?? '',\n      taxSensitive: isTaxSensitive(a),\n    }\n  }));\n\nreturn mapped;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        256
+      ],
+      "id": "da41c7bf-edcf-467d-95b2-ecd858aa48d8",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, OPTIONS"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        704,
+        256
+      ],
+      "id": "1fafb2f2-c3a2-4186-ac3f-7b8fe2d39954",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "content": "## Nominals list\n\n[Guide](https://docs.n8n.io/workflows/sticky-notes/)",
+        "height": 240,
+        "width": 1168
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -192,
+        160
+      ],
+      "typeVersion": 1,
+      "id": "1f73721d-a550-4dc1-8d36-96bec5d2ff69",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c866bc72-a953-4ded-9bcd-81538102a56f",
+              "leftValue": "={{ $json.counts.output }}",
+              "rightValue": "={{ 0 }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3392,
+        816
+      ],
+      "id": "5e293b3d-fe44-4fef-bd57-38b3c7b3bc3b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        688,
+        1200
+      ],
+      "id": "fb9e331b-880a-4eb3-bda4-1aa70cbbda9f",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split by nominal — ALWAYS emit one item per selected code\nfunction sanitizeSheetName(name) {\n  const bad = /[\\\\\\/\\?\\*\\[\\]\\:]/g;\n  const cleaned = String(name || 'Sheet').replace(bad, ' ');\n  return cleaned.slice(0, 31).trim() || 'Sheet';\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst nameOf = (code) => (sd.accountMap && sd.accountMap[String(code)]) || '';\n\n// Root payload built upstream (Filter -> ... -> here)\nconst root = items[0]?.json || {};\n\n// Selected nominals (as strings)\nconst selected = (root.selectedNominals || root.nominals || [])\n  .map(x => String(x).trim())\n  .filter(Boolean);\n\n// AOA table (first row is headers)\nconst aoa = Array.isArray(root.aoa) ? root.aoa : [];\nif (!selected.length) return [];  // nothing selected => no tabs\n\n// Resolve header indexes safely\nconst headers = (aoa[0] || []).map(h => String(h).trim());\nconst idx = n => headers.indexOf(n);\nconst iDate  = idx('Date');\nconst iSrc   = idx('Source');\nconst iDesc  = idx('Description');\nconst iRef   = idx('Reference');\nconst iNet   = idx('Net');\nconst iTax   = idx('Tax');\nconst iGross = idx('Gross');\nconst iJNr   = idx('Journal #');\nconst iCode  = idx('Account Code');\nconst iName  = idx('Account Name');\n\nconst byCode = new Map();\n// Seed an empty bucket for every selected code (guarantees an item per code)\nfor (const code of selected) {\n  const c = String(code);\n  if (!byCode.has(c)) {\n    const accName = nameOf(c);\n    byCode.set(c, {\n      accountCode: c,\n      accountName: accName || '',\n      sheetName: sanitizeSheetName(accName ? `${accName} (${c})` : `Account ${c}`),\n      lines: []\n    });\n  }\n}\n\n// If we have data rows, push lines into their code buckets (only for selected codes)\nfor (let r = 1; r < aoa.length; r++) {\n  const row = aoa[r];\n  if (!Array.isArray(row) || row.length === 0) continue;\n  const code = String(row[iCode] ?? '').trim();\n  if (!code || !byCode.has(code)) continue;  // ignore codes not selected\n\n  // If we didn’t have a name when we seeded, take it from the row\n  const name = String(row[iName] ?? '').trim();\n  const bucket = byCode.get(code);\n  if (!bucket.accountName && name) {\n    bucket.accountName = name;\n    bucket.sheetName = sanitizeSheetName(`${name} (${code})`);\n  }\n\n  bucket.lines.push({\n    date:          row[iDate] ?? '',\n    source:        row[iSrc] ?? '',\n    description:   row[iDesc] ?? '',\n    reference:     row[iRef] ?? '',\n    net:           Number(row[iNet] ?? 0),\n    tax:           Number(row[iTax] ?? 0),\n    gross:         Number(row[iGross] ?? 0),\n    journalNumber: row[iJNr] ?? '',\n    accountCode:   code,\n    accountName:   bucket.accountName || name || '',\n  });\n}\n\n// Emit one item per selected code, in the same order as selected[]\nconst out = [];\nfor (const code of selected) {\n  const b = byCode.get(String(code));\n  if (!b) continue; // should not happen due to seeding, but safe-guard\n  out.push({ json: {\n    sheetName: b.sheetName,\n    accountCode: b.accountCode,\n    accountName: b.accountName,\n    lines: b.lines\n  }});\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3680,
+        848
+      ],
+      "id": "74340afb-85f4-44fd-a7c4-a01a9c756df3",
+      "name": "Split by nominal"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format for Excel Objects — Xero-aligned (true Dr/Cr, no guessing)\n\n// Helpers\nfunction clamp2(n){ const v = Number(n)||0; return Math.abs(v) < 1e-6 ? 0 : +v.toFixed(2); }\nfunction dmy(any){\n  if (!any) return '';\n  const d = new Date(any);\n  if (isNaN(d)) return '';\n  const dd = String(d.getDate()).padStart(2,'0');\n  const mm = String(d.getMonth()+1).padStart(2,'0');\n  return `${dd}/${mm}/${d.getFullYear()}`;\n}\n\nconst sd = $getWorkflowStaticData('global');\n\nreturn items.map(it => {\n  const { sheetName, lines = [], accountCode = '', accountName = '' } = it.json || {};\n\n  // Precompute title/meta\n  const company = sd.tenantName || 'Company';\n  const period  = (sd.startDate && sd.endDate) ? `${sd.startDate} to ${sd.endDate}` : '';\n  const accountLine = (accountCode || accountName)\n    ? `${accountCode}${accountCode && accountName ? ' — ' : ''}${accountName}` : '';\n\n  const metaRows = [\n    { __title__:   'Account Transactions' },\n    { __company__: `Company: ${company}` },\n    { __period__:  `Period: ${period}` },\n    { __account__: `Account: ${accountLine}` },\n    { __blank__: '' } // spacer before headers\n  ];\n\n  // If no lines, still emit one blank data row so downstream has a body\n  if (!lines.length) {\n    const rows = [{\n      'Date':'','Source':'','Description':'','Reference':'',\n      'Debit':'','Credit':'','Running Balance':'','Gross':'','VAT':''\n    }];\n    return { json: { sheetName, accountCode, accountName, rows: [...metaRows, ...rows] } };\n  }\n\n  // Build rows using true Dr/Cr split from NetAmount\n  const rows = [];\n  let running = 0, td=0, tc=0, tg=0, tv=0;\n\n  for (const r of lines) {\n    const iso   = r.JournalDateISO || r.DateISO || r.date || '';\n    const src   = r.SourceType || r.source || '';\n    const desc  = r.Description || r.description || '';\n    const ref   = (r.Reference !== undefined ? r.Reference : r.reference) ?? '';\n\n    // Raw amounts from Xero line\n    const netRaw   = r.NetAmount ?? r.net ?? 0;\n    const taxRaw   = r.TaxAmount ?? r.tax ?? r.VAT ?? 0;\n    const grossRaw = r.GrossAmount ?? r.gross ?? (Number(netRaw) + Number(taxRaw));\n\n    const net   = clamp2(netRaw);\n    const tax   = clamp2(taxRaw);\n    const gross = clamp2(grossRaw);\n\n    // Debit if net > 0, Credit if net < 0, matching Xero exports\n    const debit  = net > 0 ? net : 0;\n    const credit = net < 0 ? -net : 0;\n\n    running = clamp2(running + debit - credit);\n    td += debit; tc += credit; tg += gross; tv += tax;\n\n    rows.push({\n      'Date': dmy(iso),\n      'Source': src,\n      'Description': desc,\n      'Reference': ref,\n      'Debit': debit || '',\n      'Credit': credit || '',\n      'Running Balance': running || '',\n      'Gross': gross || '',\n      'VAT': tax || '',\n    });\n  }\n\n  // Totals row\n  rows.push({\n    'Date':'TOTAL','Source':'','Description':'','Reference':'',\n    'Debit': clamp2(td) || '',\n    'Credit': clamp2(tc) || '',\n    'Running Balance':'',\n    'Gross': clamp2(tg) || '',\n    'VAT': clamp2(tv) || ''\n  });\n\n  return { json: { sheetName, accountCode, accountName, rows: [...metaRows, ...rows] } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4480,
+        768
+      ],
+      "id": "74ee3d1b-5a93-4e00-939a-4e72de3de317",
+      "name": "Format for Excel Objects"
+    },
+    {
+      "parameters": {
+        "operation": "addSheet",
+        "sheetName": "={{ $json.sheetName }}",
+        "sheetContents": "={{ $json.aoa }}"
+      },
+      "type": "@bitovi/n8n-nodes-excel.excel",
+      "typeVersion": 1,
+      "position": [
+        2832,
+        1280
+      ],
+      "id": "9a99bd74-9f89-4c45-a625-6c85a02bde00",
+      "name": "Excel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\nconst out = items[0] || {};\nconst bin = out.binary || {};\nconst keys = Object.keys(bin);\n\n// Expect Excel to output under 'data'; but be tolerant\nif (keys.length) {\n  const k = keys[0];\n  const val = bin[k];           // { data:<base64>, fileName, mimeType, ... } or { id: ... }\n  sd.workbook = val;            // stash for DONE path\n  out.binary = { data: val };   // normalize for downstream visibility\n} else {\n  throw new Error('Excel node did not output any binary. Check Binary Property Name and Sheet Contents (should be AOA).');\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3744,
+        1280
+      ],
+      "id": "f0a8bb07-49fa-46bc-96e6-2b1e14f9ed4f",
+      "name": "Save workbook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\nlet b = sd.workbook;\n\n// fallback: inspect incoming item if needed\nif (!b && items[0]?.binary) {\n  const ks = Object.keys(items[0].binary);\n  if (ks.length) b = items[0].binary[ks[0]];\n}\n\nif (!b) return [];                  // nothing to send\nif (!b.fileName) b.fileName = 'Account-Transactions.xlsx';\n\nreturn [{ json: {}, binary: { data: b } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5904,
+        1120
+      ],
+      "id": "b44c163b-f957-4326-b453-64df59af4221",
+      "name": "Emit final workbook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const HEADERS = ['Date','Source','Description','Reference','Debit','Credit','Running Balance','Gross','VAT'];\nconst aoa = [HEADERS, ['','','','','','','','','']]; // one blank row\nreturn [{ json: { sheetName: 'Account Transactions', aoa } }];\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        912
+      ],
+      "id": "91925e12-1ec6-4f3b-b201-1e0106f2a4cb",
+      "name": "No data"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1408,
+        1280
+      ],
+      "id": "71e8635b-2d51-4737-81a4-97832e46d843",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\ndelete sd.workbook;\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1248
+      ],
+      "id": "c7919a5e-1d33-4ed4-b957-3fa23c688010",
+      "name": "Reset workbook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const bin = items[0]?.binary || {};\nconst keys = Object.keys(bin);\nif (!keys.length) {\n  throw new Error('Excel node did not output any binary. Set Binary Property Name = \"data\" and ensure Sheet Contents is valid.');\n}\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        1280
+      ],
+      "id": "1ef04492-cc25-4470-a1ea-eda7abc5a41d",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const HEADERS = ['Date','Source','Description','Reference','Debit','Credit','Running Balance','Gross','VAT'];\n\nfunction isMetaRow(obj) {\n  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;\n  const k = Object.keys(obj)[0];\n  return k === '__title__' || k === '__company__' || k === '__period__' || k === '__account__' || k === '__blank__';\n}\n\nfunction toSingleCell(obj) {\n  const k = Object.keys(obj)[0];\n  return [obj[k]];\n}\n\nreturn items.map(it => {\n  const { sheetName, rows = [] } = it.json || {};\n\n  // 1) Meta block (rows 1–5): turn each meta object into a single-cell row\n  const metaAoa = [];\n  let i = 0;\n  while (i < rows.length && isMetaRow(rows[i])) {\n    metaAoa.push(toSingleCell(rows[i]));\n    i++;\n  }\n\n  // 2) Header row (row 6)\n  const aoa = [...metaAoa, HEADERS];\n\n  // 3) Data rows (row 7 onwards): only object-rows; drop array-rows to avoid numeric-index artifacts\n  for (; i < rows.length; i++) {\n    const r = rows[i];\n    if (!r || typeof r !== 'object' || Array.isArray(r)) continue;\n    // Also drop any accidental “header-as-row” duplicates\n    const looksLikeHeader = HEADERS.every(h => r[h] === h);\n    if (looksLikeHeader) continue;\n\n    aoa.push(HEADERS.map(h => r[h] ?? ''));\n  }\n\n  // Ensure at least one blank data row if there was nothing\n  if (aoa.length === metaAoa.length + 1) {\n    aoa.push(new Array(HEADERS.length).fill(''));\n  }\n\n  return { json: { sheetName, aoa } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4864,
+        864
+      ],
+      "id": "4dffa64b-aaa2-4643-a72b-d68a88800688",
+      "name": "Objects → AOA (for Excel)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\n// Minimal blank .xlsx payload (Sheet 'Init'), base64-encoded\nconst SEED_XLSX =\n`UEsDBBQAAAAIAJSrE1tEroPn/wAAAJYCAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK2Sy07DMBBF...AAAAA==`; // (keep your existing big base64)\n\nlet wb = sd.workbook;\n\n// If nothing is attached yet, SEED it here instead of returning []\nif (!wb) {\n  wb = {\n    data: SEED_XLSX,\n    fileName: 'seed.xlsx',\n    fileExtension: 'xlsx',\n    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',\n  };\n  sd.workbook = wb;\n}\n\n// Carry the workbook forward on binary.data\nreturn [{ json: items[0]?.json ?? {}, binary: { data: wb } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        1104
+      ],
+      "id": "c6bfc308-8b41-49d3-81c4-34d6d8571bee",
+      "name": "Attach workbook"
+    },
+    {
+      "parameters": {
+        "operation": "deleteSheet",
+        "sheetName": "Init"
+      },
+      "type": "@bitovi/n8n-nodes-excel.excel",
+      "typeVersion": 1,
+      "position": [
+        2464,
+        1104
+      ],
+      "id": "3c527e93-2f29-4fce-bfbb-ae89cb36b2ef",
+      "name": "Excel1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\n// Minimal blank .xlsx payload (Sheet 'Init'), base64-encoded\nconst SEED_XLSX =\n`UEsDBBQAAAAIAJSrE1tEroPn/wAAAJYCAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK2Sy07DMBBFf8XytoqdskAIJemCxxJYlA8w9iSx4pc8bkn/HsctLFCh\nm65G9r1zz2g0zWa2huwhovaupWtWUwJOeqXd0NL37XN1Rzddsz0EQJKtDls6phTuOUc5ghXIfACXld5HK1J+xoEHIScxAL+p61suvUvgUpWWDNo1j9CLnUnk\nac7fR2wEg5Q8HI0Lq6UiBKOlSFnne6d+UaoTgeXO4sFRB1xlA+VnCYvyN+DU95r3ELUC8iZiehE2u/hs+KeP04f3E/s/5MyUvu+1BOXlzuYWhiGCUDgCJGtY\nqcwK7VaX+cWMvJT1lQf5yb8wB6aDAbz2FkroN5mXQ+u+AFBLAwQUAAAACACUqxNbHEn3vqQAAAAWAQAACwAAAF9yZWxzLy5yZWxzjc/BDsIgDAbgVyG9O6YH\nY8zYLsZkVzMfAFnHyAYlgDrfXo7OePDY9P+/plWz2Jk9MERDTsC2KIGhU9QbpwVcu/PmAE1dXXCWKSfiaHxkueKigDElf+Q8qhGtjAV5dHkzULAy5TFo7qWa\npEa+K8s9D58GrE3W9gJC22+BdS+P/9g0DEbhidTdoks/TnwlsiyDxiRgmfmTwnQjmoqMAq8rvnqwfgNQSwMEFAAAAAgAlKsTWwPQUtK3AAAAlgEAABoAAAB4\nbC9fcmVscy93b3JrYm9vay54bWwucmVsc62QywrCMBBFfyXM3k7bhYiYuhHBregHhHT6oG0SMvH19wbFR6ELF66GO49zL7NaX4denMlza42ELElBkNG2bE0t\n4XjYzhawLlZ76lWIG9y0jkU8MSyhCcEtEVk3NChOrCMTJ5X1gwpR+hqd0p2qCfM0naP/ZsCYKXalBL8rMxCHm6Nf2LaqWk0bq08DmTBhgRfrO26IQoQqX1OQ\n8G4xPkqWRCrgdJj8n2E43HriT5Knftnj6MHFHVBLAwQUAAAACACUqxNbPYr8ZK0AAAAIAQAADwAAAHhsL3dvcmtib29rLnhtbI2PTQ6CQAyFrzLpXgZdGEMA\nN8aEvR5ghAITmJa048/xnaDuXbV9bb/2lcdXmM0DRT1TBdssB4PUcudpqOB6OW8OcKzLJ8t0Y55MmiatYIxxKazVdsTgNOMFKXV6luBiKmWwugi6TkfEGGa7\ny/O9Dc4TfAiF/MPgvvctnri9B6T4gQjOLqZfdfSLQl2uF/QbDbmAFTTkI5hVabpkCowUPiXSdFuwdWl/S/bnq34DUEsDBBQAAAAIAJSrE1tHxUUJkwAAANkA\nAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1sjY5LDsIwEEOvUmVPp7BAqErTTcUJ4ACjdNJENB9lwuf4RK3EmqVl+9ly/Pi1eVFmF8Mgjm0nGgo6zi4s\ng7jfroeLGJV8x/xgS1SaGg88CFtK6gFYW/LIbUwUqmNi9liqzAtwyoTzVvIrnLruDB5dEDuhz/8wojFO0xT101MoOyTTiqWeZesSCyW3hQkLgpLw+6m+UEsD\nBBQAAAAIAJSrE1ss6alj9QAAAO4BAAANAAAAeGwvc3R5bGVzLnhtbKWRwW7DIAyGXwVxX0l3mKaJ0MOkSDu3k3alidMggUFAq3RPPxMyrTnvZPv378/IyMPs\nLLtBTMZjy/e7hjPA3g8GLy3/PHVPr/ygZMp3C8cJIDPyY2r5lHN4EyL1Eziddj4AUmf00elMZbyIFCLoIZUhZ8Vz07wIpw1yJUePObHeXzHTylWgJd/spi0p\ney6URO2g1u/amnM0RRTVuYREc8baLYgEJYPOGSJ2VLA1P90DtBw9QsUsviUQ5uzjQBd4BFWpWNemkj1Yeyx3+Bo31nlkeHWdyx9Dy+l85W2/KfHXtGJqUbCP\ntMr+N5bN45a/oMXf36kfUEsBAhQDFAAAAAgAlKsTW0Sug+f/AAAAlgIAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAA\nCACUqxNbHEn3vqQAAAAWAQAACwAAAAAAAAAAAAAAgAEwAQAAX3JlbHMvLnJlbHNQSwECFAMUAAAACACUqxNbA9BS0rcAAACWAQAAGgAAAAAAAAAAAAAAgAH9\nAQAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHNQSwECFAMUAAAACACUqxNbPYr8ZK0AAAAIAQAADwAAAAAAAAAAAAAAgAHsAgAAeGwvd29ya2Jvb2sueG1s\nUEsBAhQDFAAAAAgAlKsTW0fFRQmTAAAA2QAAABgAAAAAAAAAAAAAAIABxgMAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLAQIUAxQAAAAIAJSrE1ss6alj\n9QAAAO4BAAANAAAAAAAAAAAAAACAAY8EAAB4bC9zdHlsZXMueG1sUEsFBgAAAAAGAAYAgAEAAK8FAAAAAA==`;\n\nlet wb = sd.workbook;\nif (!wb) {\n  wb = {\n    data: SEED_XLSX,\n    fileName: 'seed.xlsx',\n    fileExtension: 'xlsx',\n    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',\n  };\n  sd.workbook = wb;\n}\n\nreturn [{ json: items[0].json, binary: { data: wb } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1296
+      ],
+      "id": "7e610887-b503-49f3-a084-46ab373f2f68",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\nconst out = items[0] || {};\nconst bin = out.binary || {};\nconst keys = Object.keys(bin);\n\nif (!keys.length) {\n  throw new Error('Excel node did not output any binary. Check Binary Property Name and Sheet Contents (AOA).');\n}\n\nconst k = keys[0];\nconst val = bin[k];            // { data:<base64>, fileName, mimeType, ... }\nsd.workbook = val;             // store for next iteration / DONE path\nout.binary = { data: val };    // normalize\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3856,
+        1120
+      ],
+      "id": "46597169-3f66-4aff-9402-f2042ba017a4",
+      "name": "Save workbook2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect page — robust against missing X-Records-Remaining\nconst sd = $getWorkflowStaticData('global');\n\nconst resp    = items?.[0]?.json ?? {};\nconst body    = resp.body ?? {};\nconst headers = resp.headers ?? {};\n\nconst page = Array.isArray(body.Journals) ? body.Journals : [];\nif (!Array.isArray(sd.journals)) sd.journals = [];\nsd.journals.push(...page);\n\nconst pageSize = Number(headers['x-page-size'] ?? headers['X-Page-Size'] ?? 100);\nconst headerRemaining = headers['x-records-remaining'] ?? headers['X-Records-Remaining'];\nconst remainingKnown  = headerRemaining != null && headerRemaining !== '';\nconst remaining       = remainingKnown ? Number(headerRemaining) : (page.length === pageSize ? 1 : 0);\n\nsd.offset = (sd.offset ?? 0) + page.length;\n\nreturn [{\n  json: {\n    count: page.length,\n    hasMore: remaining > 0 || page.length === pageSize,\n    offset: sd.offset\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        816
+      ],
+      "id": "7e8effd8-d9dc-44c5-98cd-3ca8a4fe4b7d",
+      "name": "Collect page"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Init paging + build Xero WHERE (inclusive end date)\n */\nconst sd = $getWorkflowStaticData('global');\n\n// 1) Tenant\nconst inputTenant = $json.tenantId || sd.tenantId;\nif (!inputTenant) throw new Error('Missing tenantId for Xero-tenant-id header.');\nsd.tenantId = inputTenant;\n\n// Try to pick tenantName from anywhere available in this POST run:\nsd.tenantName =\n  $json.tenantName                                         // if your HTML sends it\n  || sd.tenantName                                         // previously set by \"Select Tenant for Journals\"\n  || ($items('Select Tenant for Journals', 0, 0)?.json?.tenantName) // if that node ran earlier in this execution\n  || 'Company';\n\n// 2) Date range (inclusive end date)\nconst startStr = $json.startDate ?? $json.start ?? '2024-01-01';\nconst endStr   = $json.endDate   ?? $json.end   ?? '2025-12-31';\n\nconst toParts = (iso) => {\n  const [y, m, d] = String(iso).split('-').map(Number);\n  if (!y || !m || !d) throw new Error('startDate/endDate must be YYYY-MM-DD');\n  return { y, m, d };\n};\n\nconst sp = toParts(startStr);\nconst ep = toParts(endStr);\n\n// Xero WHERE — end date inclusive (<=)\nsd.where = `JournalDate >= DateTime(${sp.y},${sp.m},${sp.d}) AND JournalDate <= DateTime(${ep.y},${ep.m},${ep.d})`;\n\nsd.startDate = startStr;\nsd.endDate   = endStr;\n\n// 3) Paging init\nsd.offset = 0;\nsd.journals = [];\n\n// Pass through for first Get Journals call (optional)\nreturn [{\n  json: {\n    tenantId: sd.tenantId,\n    tenantName: sd.tenantName,  // <-- include for downstream visibility (optional)\n    where: sd.where,\n    offset: sd.offset,\n    startDate: sd.startDate,\n    endDate: sd.endDate,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        816
+      ],
+      "id": "fa0708a5-9bcd-47d1-8cac-b0911497a1df",
+      "name": "Init paging"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bcd92d2e-43e9-4416-84cb-083119817a7f",
+              "leftValue": "={{$json.hasMore}}",
+              "rightValue": "Tr",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1968,
+        816
+      ],
+      "id": "c9cc17ec-c559-485b-95ae-e7e94add8343",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build consolidated body — use the pages we stored in workflow static data\nconst sd = $getWorkflowStaticData('global');\nconst all = Array.isArray(sd.journals) ? sd.journals : [];\n\n// keep any fields already present on the incoming item (e.g. debug, etc.)\n// but the Merge node will bring in startDate/endDate/tenantId from “Edit Fields” anyway.\nconst first = items[0]?.json ?? {};\n\nreturn [{\n  json: {\n    ...first,\n    body: { Journals: all }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        816
+      ],
+      "id": "6551ec6d-5417-413e-808b-c92f7bea07b2",
+      "name": "Build consolidated body"
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseDMY(s){\n  if (!s) return NaN;\n  s = String(s);\n  const m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2,4})$/);\n  if (!m) {\n    const d = new Date(s);\n    return isNaN(d) ? NaN : d.getTime();\n  }\n  const dd = Number(m[1]), mm = Number(m[2]), yyyy = Number(m[3] < 100 ? `20${m[3]}` : m[3]);\n  return new Date(yyyy, mm - 1, dd).getTime();\n}\n\nreturn items.map(item => {\n  const obj = item.json || {};\n  const lines = Array.isArray(obj.lines) ? [...obj.lines] : []; // <-- fix here\n  lines.sort((a,b) => {\n    const ta = parseDMY(a?.date), tb = parseDMY(b?.date);\n    if (isNaN(ta) && isNaN(tb)) return 0;\n    if (isNaN(ta)) return -1;\n    if (isNaN(tb)) return 1;\n    return ta - tb; // oldest → newest\n  });\n  obj.lines = lines;\n  return { json: obj };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        784
+      ],
+      "id": "cd4b9083-6a6c-4777-9f26-8bf98ed4cfb0",
+      "name": "Sort date"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dedupe while preserving sheet/account meta\nfunction clamp2(n){ const v = Number(n) || 0; return Math.abs(v) < 1e-6 ? 0 : +v.toFixed(2); }\nfunction keyOfLine(r) {\n  const jId  = r.JournalID || r.JournalId || r.journalId || '';\n  const lId  = r.JournalLineID || r.LineID || r.lineId || '';\n  if (jId && lId) return `J:${jId}|L:${lId}`;\n\n  const iso  = r.JournalDateISO || r.DateISO || r.date || '';\n  const src  = r.SourceType || r.source || '';\n  const ref  = (r.Reference !== undefined ? r.Reference : r.reference) ?? '';\n  const acc  = r.AccountCode || r.accountCode || '';\n  const desc = (r.Description || r.description || '').slice(0,120);\n  const net   = clamp2(r.Net ?? r.net ?? (r.Debit ?? r.debit ?? 0) - (r.Credit ?? r.credit ?? 0));\n  const tax   = clamp2(r.VAT ?? r.vat ?? r.Tax ?? r.tax ?? 0);\n  const gross = clamp2(r.Gross ?? r.gross ?? (net + tax));\n  return `F:${iso}|${src}|${ref}|A${acc}|N${net}|T${tax}|G${gross}|D${desc}`;\n}\n\nreturn items.map(it => {\n  const obj = it.json || {};\n  const { sheetName, accountCode, accountName } = obj;\n  const lines = Array.isArray(obj.lines) ? obj.lines : [];\n\n  const seen = new Set();\n  const unique = [];\n  for (const r of lines) {\n    if (!r.lineKey) r.lineKey = keyOfLine(r);\n    if (seen.has(r.lineKey)) continue;\n    seen.add(r.lineKey);\n    unique.push(r);\n  }\n\n  return { json: { sheetName, accountCode, accountName, lines: unique } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3936,
+        800
+      ],
+      "id": "52a9daf3-3e08-49dd-9b41-04f58d92e67a",
+      "name": "Dedupe code"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Xero Trial Balance → AOA for Excel (Xero-style columns)\n * Input: items[0].json = raw Xero TB response (Reports[0].Rows...)\n * Output: { sheetName: 'Trial Balance', aoa }\n */\nfunction num(v) {\n  if (v == null) return 0;\n  const s = String(v).replace(/[^0-9.\\-()]/g, '');\n  if (!s) return 0;\n  const neg = /^\\(.*\\)$/.test(s);\n  const n = Number(s.replace(/[()]/g, ''));\n  return Number.isFinite(n) ? (neg ? -n : n) : 0;\n}\n\n// Flatten data rows only\nfunction flattenRows(rows, out = []) {\n  if (!rows) return out;\n  for (const r of (Array.isArray(rows) ? rows : [rows])) {\n    if (r?.RowType === 'Row' && Array.isArray(r.Cells)) {\n      out.push((r.Cells || []).map(c => c?.Value ?? ''));\n    }\n    if (Array.isArray(r?.Rows)) flattenRows(r.Rows, out);\n  }\n  return out;\n}\n\n// Pull the report content\nconst sd   = $getWorkflowStaticData('global');\nconst doc  = items[0]?.json;\nconst rep  = (doc?.Reports || [])[0] || {};\nconst rows = rep.Rows || [];\n\n// Find header positions by title\nconst header = rows.find(r => r.RowType === 'Header');\nconst lower  = header?.Cells?.map(c => String(c?.Value || '').toLowerCase()) || [];\nconst pos = (re) => lower.findIndex(h => re.test(h));\n\nconst iAccount = pos(/account/);       // \"Account\"\nconst iYtdD    = pos(/ytd\\s*debit/);   // \"YTD Debit\"\nconst iYtdC    = pos(/ytd\\s*credit/);  // \"YTD Credit\"\n\nif (iAccount < 0 || iYtdD < 0 || iYtdC < 0) {\n  throw new Error('Could not locate Account / YTD Debit / YTD Credit columns from Xero TB.');\n}\n\nconst flat = flattenRows(rows);\n\n// Build lines\nconst lines = [];\nlet tD = 0, tC = 0;\n\nfor (const r of flat) {\n  if (!Array.isArray(r) || r.length <= Math.max(iAccount, iYtdD, iYtdC)) continue;\n\n  const acctCell = String(r[iAccount] ?? '').trim();\n  if (!acctCell || /^total$/i.test(acctCell)) continue;\n\n  // \"Name (123)\" → { name, code }\n  const m = acctCell.match(/^(.*)\\s+\\(([^)]+)\\)\\s*$/);\n  const name = m ? m[1].trim() : acctCell;\n  const code = m ? String(m[2]).trim() : '';\n\n  const ytdD = num(r[iYtdD]);\n  const ytdC = num(r[iYtdC]);\n\n  if (!code && !name) continue;\n\n  lines.push([code, name, +ytdD.toFixed(2) || '', +ytdC.toFixed(2) || '']);\n  tD += ytdD; tC += ytdC;\n}\n\n// Caption + AOA\nconst startDate = sd.startDate || '';\nconst endDate   = sd.endDate   || '';\nconst caption   = [`Trial Balance from ${startDate} to ${endDate}`];\n\nconst aoa = [\n  caption,\n  [], // spacer\n  ['Account Code','Account','Debit - Year to date','Credit - Year to date'],\n  ...lines,\n  ['Total','', +tD.toFixed(2) || '', +tC.toFixed(2) || ''],\n];\n\nreturn [{ json: { sheetName: 'Trial Balance', aoa } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        1200
+      ],
+      "id": "be46c1e7-77db-4581-95bd-6d5bd78a6256",
+      "name": "Parse Trial Balance (AOA)"
+    },
+    {
+      "parameters": {
+        "url": "https://api.xero.com/api.xro/2.0/Reports/TrialBalance",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.endDate || $getWorkflowStaticData('global').endDate }}"
+            },
+            {
+              "name": "periods",
+              "value": "1"
+            },
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Xero-tenant-id",
+              "value": "={{ $json.tenantId || $getWorkflowStaticData('global').tenantId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        960
+      ],
+      "id": "56378deb-e8ce-43e9-a4a0-e8d5343ac18f",
+      "name": "HTTP Request — Trial Balance (Xero)",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REDACTED",
+          "name": "REDACTED"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nlet end = $json.endDate || sd.endDate || '';\n\nend = String(end).trim();\n\n// accept yyyy-mm-dd\nif (/^\\d{4}-\\d{2}-\\d{2}$/.test(end)) {\n  // ok\n}\n// convert dd/mm/yyyy → yyyy-mm-dd\nelse if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(end)) {\n  const [d,m,y] = end.split('/');\n  end = `${y}-${m}-${d}`;\n}\n// trim ISO timestamps\nelse if (/^\\d{4}-\\d{2}-\\d{2}T/.test(end)) {\n  end = end.slice(0,10);\n}\n// last resort parsing\nelse if (end) {\n  const t = new Date(end);\n  if (!isNaN(t)) end = t.toISOString().slice(0,10);\n}\n\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(end)) {\n  throw new Error(`Trial Balance endDate is invalid. Got \"${$json.endDate || sd.endDate}\". Expected YYYY-MM-DD.`);\n}\n\nreturn [{\n  json: {\n    tenantId: $json.tenantId || sd.tenantId,\n    endDateISO: end,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        944
+      ],
+      "id": "b92c1d44-69db-4925-9161-79c281db5858",
+      "name": "Ensure TB date (ISO)",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "addSheet",
+        "sheetName": "={{ $json.sheetName }}",
+        "sheetContents": "={{ $json.aoa }}"
+      },
+      "type": "@bitovi/n8n-nodes-excel.excel",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        1520
+      ],
+      "id": "9ef2304f-dce2-4c06-bb7d-f903c2b727a5",
+      "name": "Excel2",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Save workbook\nconst sd = $getWorkflowStaticData('global');\nconst bin = items[0]?.binary || {};\nconst keys = Object.keys(bin);\nif (!keys.length) throw new Error('Excel node did not output any binary.');\nconst k = keys[0];\nsd.workbook = bin[k];            // keep latest workbook\nreturn [{ json: items[0].json, binary: { data: sd.workbook } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        1504
+      ],
+      "id": "4134e01a-4f86-4931-bb8f-5393b028891d",
+      "name": "Save workbook1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reattach workbook before Excel in other branches/loops\nconst sd = $getWorkflowStaticData('global');\nif (!sd.workbook) throw new Error('No workbook available; seed/attach before this branch.');\nreturn items.map(it => ({ json: it.json, binary: { data: sd.workbook } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1424
+      ],
+      "id": "36259a2d-61f6-4edc-bff0-b6bfc29d9a36",
+      "name": "Carry workbook",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- Sanitize AOA ---\n// Ensure the Excel node only ever sees a clean 2-D array in json.aoa,\n// and CRITICALLY: pass through the incoming `binary` workbook untouched.\n\nfunction isIndexRow(arr) {\n  if (!Array.isArray(arr)) return false;\n  const len = arr.length;\n  if (len === 0 || len > 50) return false;\n  for (let i = 0; i < len; i++) {\n    if (String(arr[i]) !== String(i)) return false;\n  }\n  return true;\n}\n\nfunction sanitizeAOA(aoa) {\n  if (!Array.isArray(aoa)) return [];\n\n  // If aoa was given as an object keyed by numeric strings, coerce to array\n  if (!Array.isArray(aoa[0])) {\n    const keys = Object.keys(aoa).filter(k => Array.isArray(aoa[k]));\n    if (keys.length) aoa = keys.map(k => aoa[k]);\n  }\n\n  // Keep only array rows\n  aoa = aoa.filter(r => Array.isArray(r));\n\n  // Remove a leading numeric index row like [0,1,2,...]\n  if (aoa.length && isIndexRow(aoa[0])) aoa.shift();\n\n  return aoa;\n}\n\nreturn items.map(it => {\n  const j = it.json || {};\n  const b = it.binary || {};      // <— preserve binary\n  j.aoa = sanitizeAOA(j.aoa);\n  return { json: j, binary: b };  // <— return binary too\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        1744
+      ],
+      "id": "a98eb75b-7a81-478b-bc4b-5ff0156f4af4",
+      "name": "Sanitize AOA",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "afa93a52-9014-4db1-9bd5-2f1fc7d16d22",
+              "name": "tenantId",
+              "value": "={{$json.query.tenantId}}",
+              "type": "string"
+            },
+            {
+              "id": "a64281f4-5adf-4bf4-a9dd-268312f8c01f",
+              "name": "startDate",
+              "value": "={{$json.query.startDate}}",
+              "type": "string"
+            },
+            {
+              "id": "7a8fa3ea-574a-49ff-8b0e-139d52863a7e",
+              "name": "endDate",
+              "value": "={{$json.query.endDate}}",
+              "type": "string"
+            },
+            {
+              "id": "71f460ab-c559-4f47-a1ba-5bede117ac98",
+              "name": "codes",
+              "value": "={{$json.query.codes}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        -32
+      ],
+      "id": "21c47487-e80c-481f-9b00-45d69e89a243",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Xero WHERE with inclusive end date; DO NOT filter on JournalLines here\nconst tenantId  = ($json.tenantId || '').trim();\nconst startDate = ($json.startDate || '').trim();  // YYYY-MM-DD\nconst endDate   = ($json.endDate   || '').trim();\nconst codesRaw  = ($json.codes     || '').trim();  // e.g. \"200,4000 4001\"\n\nif (!tenantId) throw new Error('tenantId is required');\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startDate) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) {\n  throw new Error('startDate and endDate must be YYYY-MM-DD');\n}\n\nconst [sy,sm,sd] = startDate.split('-').map(Number);\nconst [ey,em,ed] = endDate.split('-').map(Number);\n\n// Valid WHERE for /Journals (date range only)\nconst where = `JournalDate >= DateTime(${sy},${sm},${sd}) AND JournalDate <= DateTime(${ey},${em},${ed})`;\n\n// We still pass codes through (we'll filter by code in JS)\nconst codes = codesRaw\n  ? codesRaw.split(/[, \\t\\r\\n]+/).map(s => s.trim()).filter(Boolean)\n  : [];\n\nreturn [{ json: { tenantId, startDate, endDate, where, codes } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -32
+      ],
+      "id": "d851d511-2e84-411f-b9cf-a752771fa521",
+      "name": "Build where"
+    },
+    {
+      "parameters": {
+        "path": "nominal-balances",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        -32
+      ],
+      "id": "371e4b84-b3ec-494a-aa73-ebe109da9883",
+      "name": "Webhook2",
+      "webhookId": "REDACTED"
+    },
+    {
+      "parameters": {
+        "url": "https://api.xero.com/api.xro/2.0/Journals",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "where",
+              "value": "={{$json.where}}"
+            },
+            {
+              "name": "order",
+              "value": "JournalDate ASC"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Xero-tenant-id",
+              "value": "={{$json.tenantId}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        -32
+      ],
+      "id": "5fb0ffec-39e7-41ab-a9a1-ddf5fdc2d2b4",
+      "name": "HTTP Request — Journals (balances)",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "REDACTED",
+          "name": "REDACTED"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sum NetAmount per AccountCode within the range\nconst body = items[0]?.json?.body || items[0]?.json || {};\nconst journals = Array.isArray(body.Journals) ? body.Journals : body?.Journals || [];\n\nconst byCode = new Map();\n/*\n  We’ll compute movement = sum of journal line NetAmount within the date range.\n  You can swap to GrossAmount if you prefer gross movement.\n*/\nfor (const j of journals) {\n  for (const l of (j.JournalLines || [])) {\n    const code = String(l.AccountCode || '').trim();\n    if (!code) continue;\n    const name = l.AccountName || '';\n\n    const net = Number(l.NetAmount ?? 0) || 0;\n\n    const acc = byCode.get(code) || { code, name, movement: 0 };\n    acc.movement += net;\n    if (!acc.name && name) acc.name = name;\n    byCode.set(code, acc);\n  }\n}\n\n// Emit an array (so the frontend can read easily)\nconst out = [...byCode.values()].map(a => ({\n  json: {\n    code: a.code,\n    name: a.name || '',\n    movement: Number(a.movement.toFixed(2))\n  }\n}));\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -32
+      ],
+      "id": "c9420eab-43ff-449a-9f5f-e39b9e6f8237",
+      "name": "Aggregate balances"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        912,
+        -32
+      ],
+      "id": "f150d277-095a-4867-b0af-2130027d45e9",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst j = items[0].json || {};\n\nsd.tenantId         = j.tenantId || sd.tenantId;\nsd.selectedNominals = Array.isArray(j.nominals) ? j.nominals.map(String) : [];\nsd.startDate        = (j.startDate || '').slice(0,10);\nsd.endDate          = (j.endDate   || '').slice(0,10);\n\n// If you already build a WHERE later, you can also build it here and put on item:\nif (sd.startDate || sd.endDate || sd.selectedNominals.length) {\n  const parts = [];\n  if (sd.startDate) parts.push(`JournalDate>=DateTime(${sd.startDate})`);\n  if (sd.endDate)   parts.push(`JournalDate<=DateTime(${sd.endDate})`);\n  if (sd.selectedNominals.length) {\n    const list = sd.selectedNominals.map(c => `\"${String(c).trim()}\"`).join(',');\n    parts.push(`JournalLines.Any(AccountCode.In([${list}]))`);\n  }\n  j.where = parts.join(\" AND \");\n}\n\nreturn [{ json: j }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        736
+      ],
+      "id": "879c0ee9-bec7-4955-9437-6029f2ce46c5",
+      "name": "Persist inputs"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Build Analysis Payload\n * Input: items[] each => { json: { sheetName, aoa } }\n * Output: one item => { json: { analysisPack } }\n * - Filters placeholder/empty rows so the model sees only real data\n * - Picks up company name from Edit Fields / Select Tenant / workflow SD\n * - Includes Trial Balance + per-account (top-N) detail lines\n */\n\nconst sd   = $getWorkflowStaticData('global') || {};\nconst post = $items('Edit Fields', 0, 0)?.json || {};\nconst sel  = $items('Select Tenant for Journals', 0, 0)?.json || {};\n\n// ---- Company & period -------------------------------------------------------\nconst company = (post.tenantName || sel.tenantName || sd.tenantName || 'Company').toString();\n\nconst startStr = (sd.startDate || post.startDate || '').toString().slice(0,10);\nconst endStr   = (sd.endDate   || post.endDate   || '').toString().slice(0,10);\nconst period   = [startStr, endStr].filter(Boolean).join(' to ');\n\n// ---- Helpers ----------------------------------------------------------------\nfunction num(v) {\n  const n = Number(String(v ?? 0).replace(/[, ]/g, ''));\n  return Number.isFinite(n) ? n : 0;\n}\n\nfunction aoaToObjects(aoa) {\n  if (!Array.isArray(aoa) || !Array.isArray(aoa[0])) return [];\n  const H = aoa[0].map(x => String(x ?? '').trim());\n  const out = [];\n  for (let i = 1; i < aoa.length; i++) {\n    const row = Array.isArray(aoa[i]) ? aoa[i] : [];\n    const obj = {};\n    for (let c = 0; c < H.length; c++) obj[H[c]] = row[c];\n    out.push(obj);\n  }\n  return out;\n}\n\nfunction idx(headers, names) {\n  for (const n of names) {\n    const i = headers.indexOf(n);\n    if (i !== -1) return i;\n  }\n  return -1;\n}\n\n// ---- Build pack -------------------------------------------------------------\nconst pack = { company, period, trialBalance: [], accounts: [] };\n\n// Iterate all sheets coming in\nfor (const it of items) {\n  const { sheetName, aoa } = it.json || {};\n  if (!sheetName || !aoa) continue;\n\n  const isTB = /^trial\\s*balance$/i.test(String(sheetName));\n\n  // ---------------- TB sheet ----------------\n  if (isTB) {\n    const H = Array.isArray(aoa[0]) ? aoa[0].map(x => String(x ?? '').trim()) : [];\n    const iCode    = idx(H, ['Account Code', 'Code']);\n    const iName    = idx(H, ['Account Name', 'Name', 'Account']);\n    const iDebit   = idx(H, ['Debit - YTD', 'Debit YTD', 'Debit']);\n    const iCredit  = idx(H, ['Credit - YTD', 'Credit YTD', 'Credit']);\n    const iBalance = idx(H, ['Balance', 'Net', 'Closing Balance']);\n\n    for (let r = 1; r < aoa.length; r++) {\n      const row = aoa[r] || [];\n      const accountCode = String(row[iCode] ?? '').trim();\n      const accountName = String(row[iName] ?? '').trim();\n      const debit  = iDebit   >= 0 ? num(row[iDebit])   : 0;\n      const credit = iCredit  >= 0 ? num(row[iCredit])  : 0;\n      const balance= iBalance >= 0 ? num(row[iBalance]) : (debit - credit);\n\n      // Skip empty TB lines (no code + all zeros)\n      if (!accountCode && debit === 0 && credit === 0 && balance === 0) continue;\n\n      pack.trialBalance.push({ accountCode, accountName, debit, credit, balance });\n    }\n    continue;\n  }\n\n  // ------------- Nominal detail sheets --------------\n  // Expect columns: Date, Source, Description, Reference, Net, Tax, Gross, Account Code, Account Name\n  const rows = aoaToObjects(aoa).map(r => ({\n    date: String(r['Date'] ?? '').trim(),\n    source: String(r['Source'] ?? '').trim(),\n    description: String(r['Description'] ?? '').trim(),\n    reference: String(r['Reference'] ?? '').trim(),\n    net: num(r['Net']),\n    tax: num(r['Tax']),\n    gross: ('Gross' in r) ? num(r['Gross']) : (num(r['Net']) + num(r['Tax'])),\n    accountCode: String(r['Account Code'] ?? '').trim(),\n    accountName: String(r['Account Name'] ?? '').trim()\n  }));\n\n  // 🧹 drop placeholder/dummy rows: no code, no text, and zero amounts\n  const isEmpty = (r) =>\n    !r.accountCode &&\n    !r.accountName &&\n    !r.date && !r.source && !r.description && !r.reference &&\n    r.net === 0 && r.tax === 0 && r.gross === 0;\n\n  const cleaned = rows.filter(r => !isEmpty(r) && r.accountCode);\n\n  // Group by account\n  const groups = new Map();\n  for (const r of cleaned) {\n    const key = r.accountCode;\n    if (!groups.has(key)) {\n      groups.set(key, {\n        accountCode: r.accountCode,\n        accountName: r.accountName,\n        lines: [],\n        totals: { net: 0, tax: 0, gross: 0 }\n      });\n    }\n    const g = groups.get(key);\n    g.lines.push(r);\n    g.totals.net   += r.net   || 0;\n    g.totals.tax   += r.tax   || 0;\n    g.totals.gross += r.gross || 0;\n  }\n\n  // Keep top-N lines by |gross| for token safety\n  const TOP_N = 50;\n  for (const g of groups.values()) {\n    g.lines.sort((a, b) => Math.abs(b.gross) - Math.abs(a.gross));\n    g.lines = g.lines.slice(0, TOP_N);\n    if (g.lines.length) pack.accounts.push(g); // only push non-empty groups\n  }\n}\n\n// Return the compact analysis pack\nreturn [{ json: { analysisPack: pack } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6144,
+        1328
+      ],
+      "id": "a1012b35-1792-4b83-b0a2-4bb2d7c8247b",
+      "name": "Build Analysis Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "const res = items[0].json;\nconst text = res.choices?.[0]?.message?.content || '{}';\nconst data = JSON.parse(text);\n\n// Build AOA for Excel addSheet\nconst aoa = [['Category','Account Code','Account','Severity','Title','Rationale','Suggested Adjustments']];\nfor (const f of (data.trialBalanceFindings||[])) {\n  const adj = (f.suggestedAdjustments||[]).map(a=>`${a.type||''} ${a.direction||''} ${a.amount||''} ${a.notes||''}`.trim()).join('\\n');\n  aoa.push(['TB', f.accountCode||'', f.accountName||'', f.severity||'', f.title||'', f.rationale||'', adj]);\n}\nfor (const f of (data.detailFindings||[])) {\n  const adj = (f.suggestedAdjustments||[]).map(a=>`${a.type||''} ${a.direction||''} ${a.amount||''} ${a.notes||''}`.trim()).join('\\n');\n  aoa.push(['Detail', f.accountCode||'', f.accountName||'', f.severity||'', f.title||'', f.rationale||'', adj]);\n}\nreturn [{ json: { sheetName: 'Comments', aoa, raw: data } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6048,
+        1456
+      ],
+      "id": "b19a9368-67e3-4155-a5e3-b61e22a3f564",
+      "name": "Parse"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer OPENAI_API_KEY_PLACEHOLDER"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini-2024-07-18\",\n  \"tools\": [\n    { \"type\": \"file_search\", \"vector_store_ids\": [\"{{ $json.id }}\"] }\n  ],\n  \"input\": [\n    {\n      \"role\": \"system\",\n      \"content\": [\n        {\n          \"type\": \"input_text\",\n          \"text\": \"You are an accounts-prep reviewer (UK GAAP). Read the attached workbook content (trial balance + nominal detail) and produce concise review comments with proposed adjustments.\"\n        }\n      ]\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"input_text\",\n          \"text\": \"Return JSON with: summary, trialBalanceFindings[], detailFindings[]. Each finding has: accountCode, accountName, title, severity (low|medium|high|critical), rationale, suggestedAdjustments[{type,direction,amount,notes}]. If data is missing, say what’s missing in summary.\"\n        }\n      ]\n    }\n  ],\n  \"text\": {\n    \"format\": {\n      \"type\": \"json_schema\",\n      \"name\": \"AccountsReview\",\n      \"strict\": true,\n      \"schema\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"summary\", \"trialBalanceFindings\", \"detailFindings\"],\n        \"properties\": {\n          \"summary\": { \"type\": \"string\" },\n          \"trialBalanceFindings\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"object\",\n              \"additionalProperties\": false,\n              \"properties\": {\n                \"accountCode\": { \"type\": \"string\" },\n                \"accountName\": { \"type\": \"string\" },\n                \"title\": { \"type\": \"string\" },\n                \"severity\": { \"type\": \"string\", \"enum\": [\"low\", \"medium\", \"high\", \"critical\"] },\n                \"rationale\": { \"type\": \"string\" },\n                \"suggestedAdjustments\": {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"object\",\n                    \"additionalProperties\": false,\n                    \"properties\": {\n                      \"type\": { \"type\": \"string\" },\n                      \"direction\": { \"type\": \"string\", \"enum\": [\"increase expense\", \"decrease expense\", \"increase revenue\", \"decrease revenue\", \"reclass\", \"other\"] },\n                      \"amount\": { \"type\": \"number\" },\n                      \"notes\": { \"type\": \"string\" }\n                    },\n                    \"required\": [\"type\", \"direction\", \"amount\", \"notes\"]\n                  }\n                }\n              },\n              \"required\": [\"accountCode\", \"accountName\", \"title\", \"severity\", \"rationale\", \"suggestedAdjustments\"]\n            }\n          },\n          \"detailFindings\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"object\",\n              \"additionalProperties\": false,\n              \"properties\": {\n                \"accountCode\": { \"type\": \"string\" },\n                \"accountName\": { \"type\": \"string\" },\n                \"title\": { \"type\": \"string\" },\n                \"severity\": { \"type\": \"string\", \"enum\": [\"low\", \"medium\", \"high\", \"critical\"] },\n                \"rationale\": { \"type\": \"string\" },\n                \"signals\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n                \"suggestedAdjustments\": {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"object\",\n                    \"additionalProperties\": false,\n                    \"properties\": {\n                      \"type\": { \"type\": \"string\" },\n                      \"direction\": { \"type\": \"string\", \"enum\": [\"increase expense\", \"decrease expense\", \"increase revenue\", \"decrease revenue\", \"reclass\", \"other\"] },\n                      \"amount\": { \"type\": \"number\" },\n                      \"notes\": { \"type\": \"string\" }\n                    },\n                    \"required\": [\"type\", \"direction\", \"amount\", \"notes\"]\n                  }\n                }\n              },\n              \"required\": [\"accountCode\", \"accountName\", \"title\", \"severity\", \"rationale\", \"signals\", \"suggestedAdjustments\"]\n            }\n          }\n        }\n      }\n    }\n  },\n  \"temperature\": 0.2\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4928,
+        1200
+      ],
+      "id": "520612f0-dcae-4196-b4a2-f907baa20508",
+      "name": "OpenAI — Analyze file (Responses API)"
+    },
+    {
+      "parameters": {
+        "jsCode": "function getText(o){\n  const out = o?.output || o?.choices;\n  if (!Array.isArray(out) || !out.length) return '';\n  const first = out[0];\n  const content = first.content || first.message?.content;\n  if (Array.isArray(content)) {\n    const t = content.find(c => c.type?.includes('text') || c.text)?.text;\n    return t || '';\n  }\n  return typeof content === 'string' ? content : '';\n}\n\nconst raw = items[0].json || {};\nconst text = getText(raw) || '{}';\nlet data;\ntry { data = JSON.parse(text); } catch { data = { summary: text, trialBalanceFindings: [], detailFindings: [] }; }\n\nconst aoa = [['Category','Account Code','Account','Severity','Title','Rationale','Suggested Adjustments']];\nconst push = (cat, f) => {\n  const adj = (f.suggestedAdjustments||[])\n    .map(a => `${a.type||''} ${a.direction||''} ${a.amount||''} ${a.notes||''}`.trim()).join('\\n');\n  aoa.push([cat, f.accountCode||'', f.accountName||'', f.severity||'', f.title||'', f.rationale||'', adj]);\n};\n\nfor (const f of (data.trialBalanceFindings||[])) push('TB', f);\nfor (const f of (data.detailFindings||[]))      push('Detail', f);\n\nconst sheetAoa = [[`Summary: ${data.summary || ''}`], [], ...aoa];\nreturn [{ json: { sheetName: 'Comments', aoa: sheetAoa } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5344,
+        1200
+      ],
+      "id": "edefacfb-a10e-423a-a728-ec81af163dd2",
+      "name": "Turn the JSON into a “Comments” sheet"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\n// Minimal blank .xlsx payload (Sheet 'Init'), base64-encoded\nconst SEED_XLSX =\n`UEsDBBQAAAAIAJSrE1tEroPn/wAAAJYCAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK2Sy07DMBBF...AAAAA==`; // (keep your existing big base64)\n\nlet wb = sd.workbook;\n\n// If nothing is attached yet, SEED it here instead of returning []\nif (!wb) {\n  wb = {\n    data: SEED_XLSX,\n    fileName: 'seed.xlsx',\n    fileExtension: 'xlsx',\n    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',\n  };\n  sd.workbook = wb;\n}\n\n// Carry the workbook forward on binary.data\nreturn [{ json: items[0]?.json ?? {}, binary: { data: wb } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5088,
+        1504
+      ],
+      "id": "6bbf4096-359e-4c85-903f-ceef953e6173",
+      "name": "Attach workbook1"
+    },
+    {
+      "parameters": {
+        "operation": "addSheet",
+        "sheetName": "={{$json.sheetName}}",
+        "sheetContents": "{{$json.aoa}})"
+      },
+      "type": "@bitovi/n8n-nodes-excel.excel",
+      "typeVersion": 1,
+      "position": [
+        5328,
+        1520
+      ],
+      "id": "48d0fb30-90d2-4dee-a1a9-b9596455a1af",
+      "name": "Excel3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const $G = (typeof $getWorkflowStaticData === 'function') ? $getWorkflowStaticData : getWorkflowStaticData;\nconst sd = $G('global');\n\nconst out = items[0] || {};\nconst bin = out.binary || {};\nconst keys = Object.keys(bin);\n\n// Expect Excel to output under 'data'; but be tolerant\nif (keys.length) {\n  const k = keys[0];\n  const val = bin[k];           // { data:<base64>, fileName, mimeType, ... } or { id: ... }\n  sd.workbook = val;            // stash for DONE path\n  out.binary = { data: val };   // normalize for downstream visibility\n} else {\n  throw new Error('Excel node did not output any binary. Check Binary Property Name and Sheet Contents (should be AOA).');\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5632,
+        1520
+      ],
+      "id": "db15b9d1-4e1e-4931-b824-1e4931844376",
+      "name": "Save workbook3"
+    },
+    {
+      "parameters": {
+        "operation": "deleteSheet",
+        "sheetName": "={{ $json.sheetName || 'Trial Balance' }}"
+      },
+      "type": "@bitovi/n8n-nodes-excel.excel",
+      "typeVersion": 1,
+      "position": [
+        608,
+        1424
+      ],
+      "id": "af1bd6a3-dcb2-4dcc-9e59-6d05eb686358",
+      "name": "Excel4",
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Accumulate every sheet's AOA so we can build a CSV later\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.csvParts)) sd.csvParts = [];\n\nconst name = (items[0]?.json?.sheetName || 'Sheet').toString().trim();\nconst aoa  = items[0]?.json?.aoa;\n\nif (Array.isArray(aoa) && aoa.length) {\n  // store a copy so later changes don't affect it\n  sd.csvParts.push({ name, aoa: JSON.parse(JSON.stringify(aoa)) });\n}\n\n// pass the item through unchanged for Excel(addSheet)\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        1296
+      ],
+      "id": "256fb5e9-3fea-4faf-9522-83ad1734dd8d",
+      "name": "Code7"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Build TXT from captured sheets (sd.csvParts) for OpenAI File Search\n * Emits: binary.data (fileName: workpapers.txt, mimeType: text/plain)\n */\n\nconst sd = $getWorkflowStaticData('global') || {};\nconst out = [];\n\nconst post = $items('Edit Fields', 0, 0)?.json || {};\nconst company = (post.tenantName || sd.tenantName || '').toString().trim();\nconst period  = [sd.startDate, sd.endDate].filter(Boolean).join(' to ');\n\n// header\nif (company) out.push(`COMPANY: ${company}`);\nif (period)  out.push(`PERIOD: ${period}`);\nif (company || period) out.push(\"\");\n\n// helpers\nconst isRow = r => Array.isArray(r) && r.some(v => v != null && String(v).trim() !== '');\nconst pad = (s, w) => {\n  const str = String(s == null ? '' : s);\n  return str.length >= w ? str : (str + ' '.repeat(w - str.length));\n};\n\n// render a table section as monospaced text\nfunction table(aoa) {\n  if (!Array.isArray(aoa) || !aoa.length) return '';\n  const rows = aoa.filter(isRow);\n  const widths = [];\n  for (const r of rows) {\n    r.forEach((cell, i) => {\n      const len = String(cell == null ? '' : cell).length;\n      widths[i] = Math.max(widths[i] || 0, len);\n    });\n  }\n  const lines = rows.map(r => r.map((c,i)=>pad(c, widths[i])).join(' | '));\n  return lines.join('\\n');\n}\n\n// sections from sd.csvParts (filled by your capture node)\nlet sectionCount = 0;\nfor (const p of (sd.csvParts || [])) {\n  if (!p || !Array.isArray(p.aoa) || !p.aoa.length) continue;\n  out.push(`SECTION: ${p.name || 'Sheet'}`);\n  out.push(table(p.aoa));\n  out.push(''); // blank line\n  sectionCount++;\n}\n\n// guard\nconst text = out.join('\\n');\nif (!text.trim() || sectionCount === 0) {\n  throw new Error('TXT builder: no sheet data captured. Ensure the \"Capture sheet for CSV/TXT\" node runs BEFORE Excel(addSheet) in the loop and sd.csvParts is not reset too early.');\n}\n\n// emit text as binary\nconst buf = Buffer.from(text, 'utf8');\nconst b64 = buf.toString('base64');\n\nconst binary = {\n  data: {\n    data: b64,\n    fileName: 'workpapers.txt',\n    mimeType: 'text/plain'\n  }\n};\n\n// optional: clear for next run\nsd.csvParts = [];\n\nreturn [{\n  json: { bytes: buf.length, sections: sectionCount, fileName: 'workpapers.txt' },\n  binary\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        1120
+      ],
+      "id": "741a980d-e21d-41bd-929e-b557833629f6",
+      "name": "Code8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Attach TB JSON + workbook binary for Excel2(addSheet)\n// 1) Try to find an existing TB AOA from earlier nodes\nfunction findTB() {\n  const sources = ['Code4', 'Code5', 'Objects → AOA (for Excel)'];\n  for (const name of sources) {\n    const arr = $items(name) || [];\n    for (const it of arr) {\n      const j = it?.json || {};\n      const sn = String(j.sheetName || '').toLowerCase();\n      if (sn.includes('trial') && sn.includes('balance') && Array.isArray(j.aoa)) return j;\n    }\n  }\n  return null;\n}\n\n// 2) If not found, try to BUILD it from Filter's AOA (full transactions table)\nfunction buildTBFromFilter() {\n  const root = $items('Filter', 0, 0)?.json || {};\n  const aoa = Array.isArray(root.aoa) ? root.aoa : [];\n  if (!aoa.length) return null;\n\n  const H = aoa[0].map(h => String(h).trim());\n  const idx = (n) => H.indexOf(n);\n\n  const iCode = idx('Account Code');\n  const iName = idx('Account Name');\n  const iNet  = idx('Net');\n  if (iCode < 0 || iName < 0 || iNet < 0) return null;\n\n  // Aggregate signed net by code\n  const map = new Map(); // code -> {name,total}\n  for (let r = 1; r < aoa.length; r++) {\n    const row = aoa[r] || [];\n    const code = String(row[iCode] ?? '').trim();\n    if (!code) continue;\n    const name = String(row[iName] ?? '').trim();\n    const net  = Number(row[iNet] ?? 0) || 0;\n    const acc = map.get(code) || { name, total: 0 };\n    acc.total += net;\n    map.set(code, acc);\n  }\n\n  // Build TB AOA (YTD debit/credit + balance)\n  const HEAD = ['Account Code','Account Name','Debit - YTD','Credit - YTD','Balance'];\n  const rows = [];\n  let td = 0, tc = 0, tbalance = 0;\n\n  const clamp2 = (n) => { const v = Number(n)||0; return Math.abs(v) < 1e-6 ? 0 : +v.toFixed(2); };\n\n  for (const [code, {name, total}] of [...map.entries()].sort((a,b)=>a[0].localeCompare(b[0]))) {\n    const debit  = total > 0 ? clamp2(total) : 0;\n    const credit = total < 0 ? clamp2(-total) : 0;\n    rows.push([code, name, debit || '', credit || '', clamp2(total) || '']);\n    td += debit; tc += credit; tbalance += total;\n  }\n\n  const aoaOut = [HEAD, ...rows, ['Total','', clamp2(td)||'', clamp2(tc)||'', clamp2(tbalance)||'']];\n  const asAt = ($getWorkflowStaticData('global').endDate || new Date().toISOString().slice(0,10));\n  return { sheetName: `Trial Balance ${asAt}`.slice(0,31), aoa: aoaOut };\n}\n\n// 3) Pick TB JSON (existing → built → minimal header)\nlet tb = findTB() || buildTBFromFilter() || {\n  sheetName: 'Trial Balance',\n  aoa: [['Account Code','Account Name','Debit - YTD','Credit - YTD','Balance']]\n};\n\n// 4) Bring in workbook binary from Excel4 (deleteSheet)\nconst wb = $items('Excel4', 0, 0)?.binary;\nif (!wb?.data) throw new Error('No workbook binary from \"Excel4\".');\n\nreturn [{ json: tb, binary: wb }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        1424
+      ],
+      "id": "1951a8b7-c199-4914-bc85-d330efee4ea7",
+      "name": "Code9",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/files",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer OPENAI_API_KEY_PLACEHOLDER"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "purpose",
+              "value": "assistants"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4448,
+        1200
+      ],
+      "id": "5bceebb8-9090-44db-9946-e806008fdf32",
+      "name": "OpenAI — Upload TXT"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/vector_stores",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer OPENAI_API_KEY_PLACEHOLDER"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"workpapers_run\",\n  \"file_ids\": [\"{{ $json.id }}\"]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4656,
+        1200
+      ],
+      "id": "0d47c088-a888-4b3f-a226-0f0047c928c8",
+      "name": "OpenAI — Create Vector Store"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Journals": {
+      "main": [
+        [
+          {
+            "node": "Collect page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "HTTP Request — Trial Balance (Xero)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Persist inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (GET)": {
+      "main": [
+        [
+          {
+            "node": "Get connections (Xero)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get connections (Xero)": {
+      "main": [
+        [
+          {
+            "node": "Map companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Tenant for Journals": {
+      "main": [
+        [
+          {
+            "node": "Init paging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map companies": {
+      "main": [
+        [
+          {
+            "node": "Return companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Select tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select tenant": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "No data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split by nominal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Reset workbook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by nominal": {
+      "main": [
+        [
+          {
+            "node": "Dedupe code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Excel Objects": {
+      "main": [
+        [
+          {
+            "node": "Objects → AOA (for Excel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save workbook": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit final workbook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No data": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Attach workbook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset workbook": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Save workbook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Objects → AOA (for Excel)": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Attach workbook": {
+      "main": [
+        [
+          {
+            "node": "Excel1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel1": {
+      "main": [
+        [
+          {
+            "node": "Save workbook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Code7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save workbook2": {
+      "main": [
+        [
+          {
+            "node": "Code8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect page": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init paging": {
+      "main": [
+        [
+          {
+            "node": "Get Journals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Get Journals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build consolidated body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build consolidated body": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort date": {
+      "main": [
+        [
+          {
+            "node": "Format for Excel Objects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe code": {
+      "main": [
+        [
+          {
+            "node": "Sort date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Trial Balance (AOA)": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Trial Balance (Xero)": {
+      "main": [
+        [
+          {
+            "node": "Parse Trial Balance (AOA)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel2": {
+      "main": [
+        [
+          {
+            "node": "Save workbook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save workbook1": {
+      "main": [
+        []
+      ]
+    },
+    "Carry workbook": {
+      "main": [
+        [
+          {
+            "node": "Excel4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Build where",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build where": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request — Journals (balances)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Journals (balances)": {
+      "main": [
+        [
+          {
+            "node": "Aggregate balances",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate balances": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist inputs": {
+      "main": [
+        [
+          {
+            "node": "Select Tenant for Journals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Analysis Payload": {
+      "main": [
+        []
+      ]
+    },
+    "Parse": {
+      "main": [
+        []
+      ]
+    },
+    "OpenAI — Analyze file (Responses API)": {
+      "main": [
+        [
+          {
+            "node": "Turn the JSON into a “Comments” sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Turn the JSON into a “Comments” sheet": {
+      "main": [
+        [
+          {
+            "node": "Attach workbook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach workbook1": {
+      "main": [
+        [
+          {
+            "node": "Excel3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel3": {
+      "main": [
+        [
+          {
+            "node": "Save workbook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save workbook3": {
+      "main": [
+        [
+          {
+            "node": "Emit final workbook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel4": {
+      "main": [
+        [
+          {
+            "node": "Code9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code7": {
+      "main": [
+        [
+          {
+            "node": "Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code8": {
+      "main": [
+        [
+          {
+            "node": "OpenAI — Upload TXT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code9": {
+      "main": [
+        [
+          {
+            "node": "Excel2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI — Upload TXT": {
+      "main": [
+        [
+          {
+            "node": "OpenAI — Create Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI — Create Vector Store": {
+      "main": [
+        [
+          {
+            "node": "OpenAI — Analyze file (Responses API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e1dd5474-51c3-4694-858f-dd3bb126bda5",
+  "meta": {
+    "instanceId": "4bdb22e29934afca4963b33988fa09430f65768591e1779216d33b7ba27e0acc"
+  },
+  "id": "lzeY6kUWMgiYOXMJ",
+  "tags": []
+}
