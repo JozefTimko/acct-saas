@@ -7,6 +7,12 @@ import {
   DEFAULT_RETRY_CONFIG 
 } from './types';
 
+// ✅ Add for DI:
+import type { XeroClient } from 'xero-node';
+
+// Use this tiny type to allow tests to pass a fake client
+type JournalsDeps = { client?: XeroClient };
+
 export class XeroJournalsError extends Error {
   constructor(
     message: string,
@@ -20,36 +26,67 @@ export class XeroJournalsError extends Error {
   }
 }
 
-/**
- * Fetches journal entries from Xero for a specific tenant and date range
- */
+// AFTER
 export async function fetchJournals(
-  params: FetchJournalsParams
-): Promise<GLRow[]> {
-  const { 
-    tenantId, 
-    startDate, 
-    endDate, 
-    nominals = [], 
-    offset = 0, 
-    pageSize = 100 
-  } = params;
+    params: { tenantId: string; startDate: string; endDate: string; nominals: string[] },
+    deps: JournalsDeps = {}
+  ) {
+    const { tenantId, startDate, endDate, nominals } = params;
   
-  if (!process.env.XERO_CLIENT_ID || !process.env.XERO_CLIENT_SECRET) {
-    throw new XeroJournalsError(
-      'Xero credentials not configured',
-      tenantId,
-      startDate,
-      endDate
-    );
+    // Only enforce env when we are constructing a real client
+    if (!deps.client) {
+      if (!process.env.XERO_CLIENT_ID || !process.env.XERO_CLIENT_SECRET) {
+        throw new XeroJournalsError('Xero credentials not configured', tenantId, startDate, endDate);
+      }
+    }
+  
+    const client =
+      deps.client ??
+      new XeroClient({
+        clientId: process.env.XERO_CLIENT_ID!,
+        clientSecret: process.env.XERO_CLIENT_SECRET!,
+        redirectUris: [process.env.XERO_REDIRECT_URI!],
+        scopes: ['accounting.transactions.read'],
+      });
+  
+    // ⬇️ keep your existing logic below ⬇️
+    const where = `JournalDate>=DateTime(${startDate}) AND JournalDate<=DateTime(${endDate})`;
+    const order = 'JournalDate ASC';
+  
+    const pageSize = 200;     // keep your current page size
+    let offset = 0;
+    const all: any[] = [];    // or your typed array, if you already have it
+  
+    while (true) {
+      const resp = await client.accountingApi.getJournals(
+        tenantId,
+        undefined,    // ifModifiedSince
+        where,
+        order,
+        offset,
+        pageSize
+      );
+  
+      const page = resp.body;                         // keep as in your code
+      const validated = validateJournalData(page);    // your existing function
+      all.push(...validated.journals);
+  
+      const hasMore = validated?.pagination
+        ? validated.pagination.page < validated.pagination.pageCount
+        : validated.journals.length === pageSize;
+  
+      if (!hasMore) break;
+      offset += pageSize;
+    }
+  
+    const filtered = nominals?.length
+      ? filterJournalsByNominals(all, nominals)       // your existing helper
+      : all;
+  
+    const transformed = transformJournalData(filtered, startDate, endDate, nominals); // your existing function
+    return sortJournalsByDate(transformed);            // your existing helper
   }
-
-  const xeroClient = new XeroClient({
-    clientId: process.env.XERO_CLIENT_ID,
-    clientSecret: process.env.XERO_CLIENT_SECRET,
-    redirectUris: [process.env.XERO_REDIRECT_URI || 'http://localhost:3000/auth/callback'],
-    scopes: 'accounting.transactions.read',
-  });
+  
 
   try {
     const allJournalLines: GLRow[] = [];
@@ -259,3 +296,4 @@ export function filterJournalsByNominals(glRows: GLRow[], nominals: string[]): G
 export function sortJournalsByDate(glRows: GLRow[]): GLRow[] {
   return glRows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
+

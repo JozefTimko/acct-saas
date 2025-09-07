@@ -7,6 +7,13 @@ import {
   DEFAULT_RETRY_CONFIG 
 } from './types';
 
+// ✅ Add for DI:
+import type { XeroClient } from 'xero-node';
+
+// Use this tiny type to allow tests to pass a fake client
+type TrialBalanceDeps = { client?: XeroClient };
+
+
 export class XeroTrialBalanceError extends Error {
   constructor(
     message: string,
@@ -19,28 +26,44 @@ export class XeroTrialBalanceError extends Error {
   }
 }
 
-/**
- * Fetches trial balance data from Xero for a specific tenant and end date
- */
+// AFTER
 export async function fetchTrialBalance(
-  params: FetchTrialBalanceParams
-): Promise<TBRow[]> {
-  const { tenantId, endDate } = params;
+    params: { tenantId: string; endDate: string },
+    deps: TrialBalanceDeps = {}
+  ) {
+    const { tenantId, endDate } = params;
   
-  if (!process.env.XERO_CLIENT_ID || !process.env.XERO_CLIENT_SECRET) {
-    throw new XeroTrialBalanceError(
-      'Xero credentials not configured',
+    // Only enforce env when we are constructing a real client
+    if (!deps.client) {
+      if (!process.env.XERO_CLIENT_ID || !process.env.XERO_CLIENT_SECRET) {
+        throw new XeroTrialBalanceError('Xero credentials not configured', tenantId, endDate);
+      }
+    }
+  
+    const client =
+      deps.client ??
+      new XeroClient({
+        clientId: process.env.XERO_CLIENT_ID!,
+        clientSecret: process.env.XERO_CLIENT_SECRET!,
+        redirectUris: [process.env.XERO_REDIRECT_URI!],
+        scopes: ['accounting.reports.read'],
+      });
+  
+    // ⬇️ keep your existing logic below ⬇️
+    // Example shape (retain your actual call + zod/transform):
+    const resp = await client.accountingApi.getReportTrialBalance(
       tenantId,
-      endDate
+      undefined,            // fromDate (or whatever you used)
+      endDate               // toDate (adjust to your current call)
+      // ...other args if your code passes them
     );
+  
+    const data = resp.body;                        // keep as in your code
+    const parsed = validateTrialBalanceData(data); // your existing function
+    const rows   = transformTrialBalanceData(parsed); // your existing function
+    return rows;
   }
-
-  const xeroClient = new XeroClient({
-    clientId: process.env.XERO_CLIENT_ID,
-    clientSecret: process.env.XERO_CLIENT_SECRET,
-    redirectUris: [process.env.XERO_REDIRECT_URI || 'http://localhost:3000/auth/callback'],
-    scopes: 'accounting.reports.read',
-  });
+  
 
   try {
     const trialBalanceData = await withRetry(
@@ -181,3 +204,4 @@ export function validateTrialBalanceData(tbRows: TBRow[]): void {
     throw new Error('Duplicate account codes found in trial balance data');
   }
 }
+
